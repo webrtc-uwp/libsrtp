@@ -46,6 +46,12 @@
 #include <string.h>     /* for srtcmp() */
 #include "config.h"
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main srtp_test_env_main
+#endif
+
 int 
 main(void) {
   int err_count = 0;

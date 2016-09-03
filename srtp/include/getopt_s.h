@@ -57,4 +57,9 @@ extern char *optarg_s;    /* defined in getopt.c */
 
 extern int optind_s;      /* defined in getopt.c */
 
+// make it compatible with posix
+#define getopt(argc, argv, optstring) getopt_s(argc, argv, optstring)
+#define optarg optarg_s
+#define optind optind_s
+
 #endif /* GETOPT_S_H */

@@ -127,7 +127,7 @@ octet_bit_string(uint8_t x);
 #define MAX_PRINT_STRING_LEN 1024
 
 char *
-octet_string_hex_string(const void *str, int length);
+octet_string_hex_string(const void *str, size_t length);
 
 char *
 v128_bit_string(v128_t *x);
@@ -158,7 +158,7 @@ hex_string_to_octet(char *s);
  */
 
 int
-hex_string_to_octet_string(char *raw, char *hex, int len);
+hex_string_to_octet_string(char *raw, char *hex, size_t len);
 
 v128_t
 hex_string_to_v128(char *s);

@@ -109,6 +109,15 @@
 # endif
 #endif
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main rtpw_main
+// we have to avoid duplicated names
+# define usage rtpw_usage
+#include "winrt_helpers.h"
+#endif
+
 
 /*
  * the function usage() prints an error message describing how this
@@ -557,8 +566,10 @@ main (int argc, char *argv[]) {
           
     /* read words from dictionary, then send them off */
     while (!interrupted && fgets(word, MAX_WORD_LEN, dict) != NULL) { 
+     // since it's winsock2, which expects int, disable warning for this line
+#pragma warning (disable:4267)
       len = strlen(word) + 1;  /* plus one for null */
-      
+#pragma warning (default:4267)
       if (len > MAX_WORD_LEN) 
 	printf("error: word %s too large to send\n", word);
       else {
@@ -576,7 +587,11 @@ main (int argc, char *argv[]) {
     rtp_receiver_t rcvr;
         
     if (bind(sock, (struct sockaddr *)&name, sizeof(name)) < 0) {
-      close(sock);
+#ifdef RTPW_USE_WINSOCK2
+      ret = closesocket(sock);
+#else
+      ret = close(sock);
+#endif
       fprintf(stderr, "%s: socket bind error\n", argv[0]);
       perror(NULL);
       if (ADDR_IS_MULTICAST(rcvr_addr.s_addr)) {

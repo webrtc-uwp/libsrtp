@@ -57,6 +57,16 @@
 # include <winsock2.h>
 #endif
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main srtp_driver_main
+// we have to avoid duplicated names
+# define usage srtp_drive_usage
+# define err_check srtp_drive_err_check
+# include "winrt_helpers.h"
+#endif
+
 #define PRINT_REFERENCE_PACKET 1
 
 err_status_t
@@ -1415,6 +1425,7 @@ srtp_create_big_policy(srtp_policy_t **list) {
    * into it (and incrementing the SSRC value as we go along)
    */
   tmp = NULL;
+  p = NULL;
   while (policy_array[i] != NULL) {
     p  = (srtp_policy_t*) malloc(sizeof(srtp_policy_t));
     if (p == NULL)

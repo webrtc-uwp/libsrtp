@@ -62,6 +62,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main srtp_test_aes_calc_main
+//We do not want exit process 
+# define usage srtp_test_aes_calc_usage
+#include "winrt_helpers.h"
+#endif
+
 void
 usage(char *prog_name) {
   printf("usage: %s <key> <plaintext> [-v]\n", prog_name);

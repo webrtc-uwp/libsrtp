@@ -52,6 +52,12 @@
 #include "sha1.h"
 #include "datatypes.h"
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main srtp_test_sha1_driver_main
+#endif
+
 #define SHA_PASS 0
 #define SHA_FAIL 1
 

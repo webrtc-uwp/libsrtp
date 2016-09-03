@@ -17,6 +17,8 @@
       './config',
       'srtp/include',
       'srtp/crypto/include',
+      'srtp/test',
+      '../boringssl/src/include',
     ],
     'conditions': [
       ['use_openssl==1', {
@@ -49,7 +51,12 @@
           # All Windows architectures are this way.
           'SIZEOF_UNSIGNED_LONG=4',
           'SIZEOF_UNSIGNED_LONG_LONG=8',
+          'HAVE_WINSOCK2_H',
+          'HAVE_WINDOWS_H',
          ],
+         'msvs_disabled_warnings': [
+            4018,  # signed/unsigned mismatch in comparison
+          ],
       }],
       ['target_arch=="x64" or target_arch=="ia32"', {
         'defines': [
@@ -221,6 +228,18 @@
         'srtp/test/getopt_s.c',
         'srtp/test/rdbx_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_driver',
@@ -234,6 +253,18 @@
         'srtp/test/getopt_s.c',
         'srtp/test/srtp_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'roc_driver',
@@ -246,6 +277,18 @@
         'srtp/include/ut_sim.h',
         'srtp/test/roc_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'replay_driver',
@@ -258,6 +301,18 @@
         'srtp/include/ut_sim.h',
         'srtp/test/replay_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'rtpw',
@@ -280,6 +335,16 @@
             'HAVE_SYS_SOCKET_H',
           ],
         }],
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
       ],
     },
     {
@@ -299,6 +364,16 @@
             '<(DEPTH)/third_party/boringssl/boringssl.gyp:boringssl',
           ],
         }],
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+          'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }], 
       ],
     },
     {
@@ -310,6 +385,18 @@
       'sources': [
         'srtp/crypto/test/datatypes_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_stat_driver',
@@ -320,6 +407,18 @@
       'sources': [
         'srtp/crypto/test/stat_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_sha1_driver',
@@ -330,6 +429,18 @@
       'sources': [
         'srtp/crypto/test/sha1_driver.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_kernel_driver',
@@ -342,6 +453,18 @@
         'srtp/include/getopt_s.h',
         'srtp/test/getopt_s.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_aes_calc',
@@ -352,6 +475,18 @@
       'sources': [
         'srtp/crypto/test/aes_calc.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_rand_gen',
@@ -364,6 +499,18 @@
         'srtp/include/getopt_s.h',
         'srtp/test/getopt_s.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_rand_gen_soak',
@@ -376,6 +523,18 @@
         'srtp/include/getopt_s.h',
         'srtp/test/getopt_s.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_test_env',
@@ -386,6 +545,18 @@
       'sources': [
         'srtp/crypto/test/env.c',
       ],
+      'conditions': [
+        ['OS=="win" and OS_RUNTIME=="winrt"', {
+          'type': 'static_library',
+          'defines': [
+            'WINRT',
+          ],
+         'sources': [
+            'srtp/test/winrt_helpers.h',
+            'srtp/test/winrt_helpers.cpp',
+          ],
+        }],
+      ], 
     },
     {
       'target_name': 'srtp_runtest',

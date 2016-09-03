@@ -43,6 +43,8 @@
  *
  */
 
+#include <stdlib.h>     /* for random() */
+
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -56,6 +58,13 @@
  * num_trials defines the number of trials that are used in the
  * validation functions below
  */
+
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main replay_driver_main
+#include "winrt_helpers.h"
+#endif
 
 unsigned num_trials = 1 << 16;
 
@@ -224,7 +233,6 @@ test_rdb_db() {
 }
 
 #include <time.h>       /* for clock()  */
-#include <stdlib.h>     /* for random() */
 
 #define REPLAY_NUM_TRIALS 10000000
 

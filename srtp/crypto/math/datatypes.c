@@ -109,7 +109,7 @@ nibble_to_hex_char(uint8_t nibble) {
 }
 
 char *
-octet_string_hex_string(const void *s, int length) {
+octet_string_hex_string(const void *s, size_t length) {
   const uint8_t *str = (const uint8_t *)s;
   int i;
   
@@ -120,6 +120,7 @@ octet_string_hex_string(const void *s, int length) {
   if (length > MAX_PRINT_STRING_LEN)
     length = MAX_PRINT_STRING_LEN-1;
   
+#pragma warning(disable : 4018)
   for (i=0; i < length; i+=2) {
     bit_string[i]   = nibble_to_hex_char(*str >> 4);
     bit_string[i+1] = nibble_to_hex_char(*str++ & 0xF);
@@ -173,7 +174,7 @@ is_hex_string(char *s) {
  */
 
 int
-hex_string_to_octet_string(char *raw, char *hex, int len) {
+hex_string_to_octet_string(char *raw, char *hex, size_t len) {
   uint8_t x;
   int tmp;
   int hex_len;

@@ -61,6 +61,13 @@
 #include "rdbx.h"
 #include "ut_sim.h"
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main roc_driver_main
+#include "winrt_helpers.h"
+#endif
+
 err_status_t
 roc_test(int num_trials);
 

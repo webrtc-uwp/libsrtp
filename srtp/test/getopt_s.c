@@ -52,6 +52,15 @@ char *optarg_s;
 #define GETOPT_FOUND_WITH_ARGUMENT       1
 #define GETOPT_NOT_FOUND                 0 
 
+#ifdef WINRT
+  //WinRT launches all test project in one process, so global variables has to be reset
+  void getopt_reset()
+  {
+    optind_s = 0;
+  }
+#endif
+
+
 static int 
 getopt_check_character(char c, const char *string) {
   unsigned int max_string_len = 128;

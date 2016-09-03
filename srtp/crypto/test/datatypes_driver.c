@@ -52,6 +52,14 @@
 #include <string.h>           /* for strlen() */
 #include "datatypes.h"
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main srtp_test_datatypes_driver_main
+// we have to avoid duplicated names
+# define usage srtp_test_datatypes_driver_usage
+#endif
+
 void
 byte_order(void);
 
@@ -193,18 +201,17 @@ test_hex_string_funcs(void) {
   char hex1[] = "abadcafe";
   char hex2[] = "0123456789abcdefqqqqq";
   char raw[10];
-  int len;
+  size_t len;
 
   len = hex_string_to_octet_string(raw, hex1, strlen(hex1));
-  printf("computed length: %d\tstring: %s\n", len,
+  printf("computed length: %zd\tstring: %s\n", len,
 	 octet_string_hex_string(raw, len/2));
   printf("expected length: %u\tstring: %s\n", (unsigned)strlen(hex1), hex1);
 
   len = hex_string_to_octet_string(raw, hex2, strlen(hex2));
-  printf("computed length: %d\tstring: %s\n", len,
+  printf("computed length: %zd\tstring: %s\n", len,
 	 octet_string_hex_string(raw, len/2));
   printf("expected length: %d\tstring: %s\n", 16, "0123456789abcdef");
-
 }
 
 void

@@ -322,7 +322,7 @@ crypto_kernel_shutdown() {
 static inline err_status_t
 crypto_kernel_do_load_cipher_type(cipher_type_t *new_ct, cipher_type_id_t id,
 				  int replace) {
-  kernel_cipher_type_t *ctype, *new_ctype;
+  kernel_cipher_type_t *ctype, *new_ctype = NULL;
   err_status_t status;
 
   /* defensive coding */
@@ -392,7 +392,7 @@ crypto_kernel_replace_cipher_type(cipher_type_t *new_ct, cipher_type_id_t id) {
 err_status_t
 crypto_kernel_do_load_auth_type(auth_type_t *new_at, auth_type_id_t id,
 				int replace) {
-  kernel_auth_type_t *atype, *new_atype;
+  kernel_auth_type_t *atype, *new_atype = NULL;
   err_status_t status;
 
   /* defensive coding */

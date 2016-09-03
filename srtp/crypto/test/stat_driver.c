@@ -49,11 +49,25 @@
 
 #include <stdio.h>         /* for printf() */
 
+#ifdef WINRT
+//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
+//and this project as a static library, so we need exclusive main function name.
+# define main srtp_test_stat_driver_main
+// we have to avoid duplicated names
+# define err_check srtp_test_stat_driver_err_check
+// flushing std output causes clearing buffer used for capturing output in WinRT runner application
+#define fflush(param) 
+#endif
+
 #include "err.h"
 #include "stat.h"
 #include "srtp.h"
 
 #include "cipher.h"
+
+#ifdef WINRT
+#include "winrt_helpers.h"
+#endif
 
 typedef struct {
   void *state;
