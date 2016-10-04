@@ -1,1 +1,3 @@
 *.target.mk
+*_win10_*.vcxpro*
+*_win10_*.sln
