@@ -75,6 +75,9 @@ debug_module_t mod_srtp = {
 
 static err_status_t
 srtp_validate_rtp_header(void *rtp_hdr, int *pkt_octet_len) {
+  if (*pkt_octet_len < octets_in_rtp_header)
+     return err_status_bad_param;
+
   srtp_hdr_t *hdr = (srtp_hdr_t *)rtp_hdr;
 
   /* Check RTP header length */
@@ -229,6 +232,61 @@ srtp_stream_alloc(srtp_stream_ctx_t **str_ptr,
    return stat;    
   }
 
+  if (p->enc_xtn_hdr && p->enc_xtn_hdr_count > 0) {
+    cipher_type_id_t enc_xtn_hdr_cipher_type;
+    int enc_xtn_hdr_cipher_key_len;
+
+    str->enc_xtn_hdr = (int*) crypto_alloc(p->enc_xtn_hdr_count * sizeof(p->enc_xtn_hdr[0]));
+    if (!str->enc_xtn_hdr) {
+      auth_dealloc(str->rtcp_auth);
+      cipher_dealloc(str->rtcp_cipher);
+      auth_dealloc(str->rtp_auth);
+      cipher_dealloc(str->rtp_cipher);
+      crypto_free(str->limit);
+      crypto_free(str);
+      return err_status_alloc_fail;
+    }
+    memcpy(str->enc_xtn_hdr, p->enc_xtn_hdr, p->enc_xtn_hdr_count * sizeof(p->enc_xtn_hdr[0]));
+    str->enc_xtn_hdr_count = p->enc_xtn_hdr_count;
+
+    /* For GCM ciphers, the corresponding ICM cipher is used for header extensions encryption. */
+    switch (p->rtp.cipher_type) {
+    case AES_128_GCM:
+      enc_xtn_hdr_cipher_type = AES_128_ICM;
+      enc_xtn_hdr_cipher_key_len = 30;
+      break;
+    case AES_256_GCM:
+      enc_xtn_hdr_cipher_type = AES_256_ICM;
+      enc_xtn_hdr_cipher_key_len = 46;
+      break;
+    default:
+      enc_xtn_hdr_cipher_type = p->rtp.cipher_type;
+      enc_xtn_hdr_cipher_key_len = p->rtp.cipher_key_len;
+      break;
+    }
+
+    /* allocate cipher for extensions header encryption */
+    stat = crypto_kernel_alloc_cipher(enc_xtn_hdr_cipher_type,
+              &str->rtp_xtn_hdr_cipher,
+              enc_xtn_hdr_cipher_key_len,
+              0);
+
+    if (stat) {
+      crypto_free(str->enc_xtn_hdr);
+      auth_dealloc(str->rtcp_auth);
+      cipher_dealloc(str->rtcp_cipher);
+      auth_dealloc(str->rtp_auth);
+      cipher_dealloc(str->rtp_cipher);
+      crypto_free(str->limit);
+      crypto_free(str);
+      return stat;
+    }
+  } else {
+    str->rtp_xtn_hdr_cipher = NULL;
+    str->enc_xtn_hdr = NULL;
+    str->enc_xtn_hdr_count = 0;
+  }
+
   return err_status_ok;
 }
 
@@ -270,6 +328,15 @@ srtp_stream_dealloc(srtp_t session, srtp_stream_ctx_t *stream) {
     crypto_free(stream->limit);
   }   
 
+  if (session->stream_template
+      && stream->rtp_xtn_hdr_cipher == session->stream_template->rtp_xtn_hdr_cipher) {
+    /* do nothing */
+  } else if (stream->rtp_xtn_hdr_cipher) {
+    status = cipher_dealloc(stream->rtp_xtn_hdr_cipher);
+    if (status)
+      return status;
+  }
+
   /* 
    * deallocate rtcp cipher, if it is not the same as that in
    * template 
@@ -301,6 +368,13 @@ srtp_stream_dealloc(srtp_t session, srtp_stream_ctx_t *stream) {
     return status;
 
   /* DAM - need to deallocate EKT here */
+
+  if (session->stream_template
+      && stream->enc_xtn_hdr == session->stream_template->enc_xtn_hdr) {
+    /* do nothing */
+  } else if (stream->enc_xtn_hdr) {
+    crypto_free(stream->enc_xtn_hdr);
+  }
 
   /*
    * zeroize the salt value
@@ -342,6 +416,7 @@ srtp_stream_clone(const srtp_stream_ctx_t *stream_template,
   /* set cipher and auth pointers to those of the template */
   str->rtp_cipher  = stream_template->rtp_cipher;
   str->rtp_auth    = stream_template->rtp_auth;
+  str->rtp_xtn_hdr_cipher = stream_template->rtp_xtn_hdr_cipher;
   str->rtcp_cipher = stream_template->rtcp_cipher;
   str->rtcp_auth   = stream_template->rtcp_auth;
 
@@ -374,6 +449,10 @@ srtp_stream_clone(const srtp_stream_ctx_t *stream_template,
 
   /* set pointer to EKT data associated with stream */
   str->ekt = stream_template->ekt;
+
+  /* copy information about extensions header encryption */
+  str->enc_xtn_hdr = stream_template->enc_xtn_hdr;
+  str->enc_xtn_hdr_count = stream_template->enc_xtn_hdr_count;
 
   /* Copy the salt values */
   memcpy(str->salt, stream_template->salt, SRTP_AEAD_SALT_LEN);
@@ -408,7 +487,9 @@ typedef enum {
   label_rtp_salt        = 0x02,
   label_rtcp_encryption = 0x03,
   label_rtcp_msg_auth   = 0x04,
-  label_rtcp_salt       = 0x05
+  label_rtcp_salt       = 0x05,
+  label_rtp_header_encryption = 0x06,
+  label_rtp_header_salt = 0x07
 } srtp_prf_label;
 
 
@@ -591,6 +672,88 @@ srtp_stream_init_keys(srtp_stream_ctx_t *srtp, const void *key) {
     /* zeroize temp buffer */
     octet_string_set_to_zero(tmp_key, MAX_SRTP_KEY_LEN);
     return err_status_init_fail;
+  }
+
+  if (srtp->rtp_xtn_hdr_cipher) {
+    /* generate extensions header encryption key  */
+    int rtp_xtn_hdr_keylen;
+    int rtp_xtn_hdr_base_key_len;
+    int rtp_xtn_hdr_salt_len;
+    srtp_kdf_t tmp_kdf;
+    srtp_kdf_t *xtn_hdr_kdf;
+
+    if (srtp->rtp_xtn_hdr_cipher->type != srtp->rtp_cipher->type) {
+      /* With GCM ciphers, the header extensions are still encrypted using the corresponding ICM cipher. */
+      /* See https://tools.ietf.org/html/draft-ietf-avtcore-srtp-aes-gcm-17#section-8.3 */
+      uint8_t tmp_xtn_hdr_key[MAX_SRTP_KEY_LEN];
+      rtp_xtn_hdr_keylen = cipher_get_key_length(srtp->rtp_xtn_hdr_cipher);
+      rtp_xtn_hdr_base_key_len = base_key_length(srtp->rtp_xtn_hdr_cipher->type, rtp_xtn_hdr_keylen);
+      rtp_xtn_hdr_salt_len = rtp_xtn_hdr_keylen - rtp_xtn_hdr_base_key_len;
+      memset(tmp_xtn_hdr_key, 0x0, MAX_SRTP_KEY_LEN);
+      memcpy(tmp_xtn_hdr_key, key, (rtp_xtn_hdr_base_key_len + rtp_xtn_hdr_salt_len));
+      xtn_hdr_kdf = &tmp_kdf;
+
+      /* initialize KDF state     */
+      stat = srtp_kdf_init(xtn_hdr_kdf, AES_ICM, (const uint8_t *)tmp_xtn_hdr_key, kdf_keylen);
+      octet_string_set_to_zero(tmp_xtn_hdr_key, MAX_SRTP_KEY_LEN);
+      if (stat) {
+        return err_status_init_fail;
+      }
+    } else {
+      /* Reuse main KDF. */
+      rtp_xtn_hdr_keylen = rtp_keylen;
+      rtp_xtn_hdr_base_key_len = rtp_base_key_len;
+      rtp_xtn_hdr_salt_len = rtp_salt_len;
+      xtn_hdr_kdf = &kdf;
+    }
+
+    stat = srtp_kdf_generate(xtn_hdr_kdf, label_rtp_header_encryption,
+           tmp_key, rtp_xtn_hdr_base_key_len);
+    if (stat) {
+      /* zeroize temp buffer */
+      octet_string_set_to_zero(tmp_key, MAX_SRTP_KEY_LEN);
+      return err_status_init_fail;
+    }
+    debug_print(mod_srtp, "extensions cipher key: %s",
+          octet_string_hex_string(tmp_key, rtp_xtn_hdr_base_key_len));
+
+    /*
+     * if the cipher in the srtp context uses a salt, then we need
+     * to generate the salt value
+     */
+    if (rtp_xtn_hdr_salt_len > 0) {
+      debug_print(mod_srtp, "found rtp_xtn_hdr_salt_len > 0, generating salt", NULL);
+
+      /* generate encryption salt, put after encryption key */
+      stat = srtp_kdf_generate(xtn_hdr_kdf, label_rtp_header_salt,
+             tmp_key + rtp_xtn_hdr_base_key_len, rtp_xtn_hdr_salt_len);
+      if (stat) {
+        /* zeroize temp buffer */
+        octet_string_set_to_zero(tmp_key, MAX_SRTP_KEY_LEN);
+        return err_status_init_fail;
+      }
+    }
+    if (rtp_xtn_hdr_salt_len > 0) {
+      debug_print(mod_srtp, "extensions cipher salt: %s",
+      octet_string_hex_string(tmp_key + rtp_xtn_hdr_base_key_len, rtp_xtn_hdr_salt_len));
+    }
+
+    /* initialize extensions header cipher */
+    stat = cipher_init(srtp->rtp_xtn_hdr_cipher, tmp_key);
+    if (stat) {
+      /* zeroize temp buffer */
+      octet_string_set_to_zero(tmp_key, MAX_SRTP_KEY_LEN);
+      return err_status_init_fail;
+    }
+
+    if (xtn_hdr_kdf != &kdf) {
+      /* release memory for custom header extension encryption kdf */
+      stat = srtp_kdf_clear(xtn_hdr_kdf);
+      if (stat) {
+        octet_string_set_to_zero(tmp_key, MAX_SRTP_KEY_LEN);
+        return err_status_init_fail;
+      }
+    }
   }
 
   /* generate authentication key */
@@ -829,6 +992,119 @@ srtp_stream_init(srtp_stream_ctx_t *srtp,
    return err_status_ok;
  }
 
+
+/*
+ * Check if the given extension header id is / should be encrypted.
+ * Returns 1 if yes, otherwise 0.
+ */
+static int
+srtp_protect_extension_header(srtp_stream_ctx_t *stream, int id) {
+  int* enc_xtn_hdr = stream->enc_xtn_hdr;
+  int count = stream->enc_xtn_hdr_count;
+
+  if (!enc_xtn_hdr || count <= 0) {
+    return 0;
+  }
+
+  while (count > 0) {
+    if (*enc_xtn_hdr == id) {
+      return 1;
+    }
+
+    enc_xtn_hdr++;
+    count--;
+  }
+  return 0;
+}
+
+
+/*
++ * extensions header encryption RFC 6904
+ */
+static err_status_t
+srtp_process_header_encryption(srtp_stream_ctx_t *stream, srtp_hdr_xtnd_t *xtn_hdr) {
+  err_status_t status;
+  uint8_t keystream[257];  /* Maximum 2 bytes header + 255 bytes data. */
+  int keystream_pos;
+  uint8_t* xtn_hdr_data = ((uint8_t *)xtn_hdr) + octets_in_rtp_extn_hdr;
+  uint8_t* xtn_hdr_end = xtn_hdr_data + (ntohs(xtn_hdr->length) * sizeof(uint32_t));
+
+  if (ntohs(xtn_hdr->profile_specific) == 0xbede) {
+    /* RFC 5285, section 4.2. One-Byte Header */
+    while (xtn_hdr_data < xtn_hdr_end) {
+      uint8_t xid = (*xtn_hdr_data & 0xf0) >> 4;
+      unsigned int xlen = (*xtn_hdr_data & 0x0f) + 1;
+      uint32_t xlen_with_header = 1+xlen;
+      xtn_hdr_data++;
+
+      if (xtn_hdr_data + xlen > xtn_hdr_end)
+        return err_status_parse_err;
+
+      if (xid == 15) {
+        /* found header 15, stop further processing. */
+        break;
+      }
+
+      status = cipher_output(stream->rtp_xtn_hdr_cipher, keystream, xlen_with_header);
+      if (status)
+        return err_status_cipher_fail;
+
+      if (srtp_protect_extension_header(stream, xid)) {
+        keystream_pos = 1;
+        while (xlen > 0) {
+          *xtn_hdr_data ^= keystream[keystream_pos++];
+          xtn_hdr_data++;
+          xlen--;
+        }
+      } else {
+        xtn_hdr_data += xlen;
+      }
+
+      /* skip padding bytes. */
+      while (xtn_hdr_data < xtn_hdr_end && *xtn_hdr_data == 0) {
+        xtn_hdr_data++;
+      }
+    }
+  } else if ((ntohs(xtn_hdr->profile_specific) & 0x1fff) == 0x100) {
+    /* RFC 5285, section 4.3. Two-Byte Header */
+    while (xtn_hdr_data + 1 < xtn_hdr_end) {
+      uint8_t xid = *xtn_hdr_data;
+      unsigned int xlen = *(xtn_hdr_data+1);
+      uint32_t xlen_with_header = 2+xlen;
+      xtn_hdr_data += 2;
+
+      if (xtn_hdr_data + xlen > xtn_hdr_end)
+        return err_status_parse_err;
+
+      status = cipher_output(stream->rtp_xtn_hdr_cipher, keystream, xlen_with_header);
+      if (status)
+        return err_status_cipher_fail;
+
+      if (xlen > 0 && srtp_protect_extension_header(stream, xid)) {
+        keystream_pos = 2;
+        while (xlen > 0) {
+          *xtn_hdr_data ^= keystream[keystream_pos++];
+          xtn_hdr_data++;
+          xlen--;
+        }
+      } else {
+        xtn_hdr_data += xlen;
+      }
+
+      /* skip padding bytes. */
+      while (xtn_hdr_data < xtn_hdr_end && *xtn_hdr_data == 0) {
+        xtn_hdr_data++;
+      }
+    }
+  } else {
+    /* unsupported extension header format. */
+    return err_status_parse_err;
+  }
+
+  return err_status_ok;
+}
+
+
 /*
  * AEAD uses a new IV formation method.  This function implements
  * section 9.1 from draft-ietf-avtcore-srtp-aes-gcm-07.txt.  The
@@ -916,6 +1192,7 @@ srtp_protect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream,
     int tag_len;
     v128_t iv;
     unsigned int aad_len;
+    srtp_hdr_xtnd_t *xtn_hdr = NULL;
 
     debug_print(mod_srtp, "function srtp_protect_aead", NULL);
 
@@ -947,10 +1224,10 @@ srtp_protect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream,
      */
      enc_start = (uint32_t*)hdr + uint32s_in_rtp_header + hdr->cc;
      if (hdr->x == 1) {
-         srtp_hdr_xtnd_t *xtn_hdr = (srtp_hdr_xtnd_t*)enc_start;
+         xtn_hdr = (srtp_hdr_xtnd_t*)enc_start;
          enc_start += (ntohs(xtn_hdr->length) + 1);
      }
-     if (!((uint8_t*)enc_start < (uint8_t*)hdr + *pkt_octet_len))
+     if (!((uint8_t*)enc_start <= (uint8_t*)hdr + *pkt_octet_len))
          return err_status_parse_err;
      enc_octet_len = (unsigned int)(*pkt_octet_len -
                                     ((uint8_t*)enc_start - (uint8_t*)hdr));
@@ -980,10 +1257,6 @@ srtp_protect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream,
      * AEAD uses a new IV formation method
      */
     srtp_calc_aead_iv(stream, &iv, &est, hdr);
-    status = cipher_set_iv(stream->rtp_cipher, &iv, direction_encrypt);
-    if (status) {
-        return err_status_cipher_fail;
-    }
 
     /* shift est, put into network byte order */
 #ifdef NO_64BIT_MATH
@@ -993,6 +1266,27 @@ srtp_protect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream,
 #else
     est = be64_to_cpu(est << 16);
 #endif
+
+    status = cipher_set_iv(stream->rtp_cipher, &iv, direction_encrypt);
+    if (!status && stream->rtp_xtn_hdr_cipher) {
+      iv.v32[0] = 0;
+      iv.v32[1] = hdr->ssrc;
+      iv.v64[1] = est;
+      status = cipher_set_iv(stream->rtp_xtn_hdr_cipher, (uint8_t*)&iv, direction_encrypt);
+    }
+    if (status) {
+        return err_status_cipher_fail;
+    }
+
+    if (xtn_hdr && stream->rtp_xtn_hdr_cipher) {
+      /*
+       * extensions header encryption RFC 6904
+       */
+      status = srtp_process_header_encryption(stream, xtn_hdr);
+      if (status) {
+        return status;
+      }
+    }
 
     /*
      * Set the AAD over the RTP header 
@@ -1045,6 +1339,7 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
     err_status_t status;
     int tag_len;
     unsigned int aad_len;
+    srtp_hdr_xtnd_t *xtn_hdr = NULL;
 
     debug_print(mod_srtp, "function srtp_unprotect_aead", NULL);
 
@@ -1074,10 +1369,10 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
      */
     enc_start = (uint32_t*)hdr + uint32s_in_rtp_header + hdr->cc;
     if (hdr->x == 1) {
-        srtp_hdr_xtnd_t *xtn_hdr = (srtp_hdr_xtnd_t*)enc_start;
+        xtn_hdr = (srtp_hdr_xtnd_t*)enc_start;
         enc_start += (ntohs(xtn_hdr->length) + 1);
     }
-    if (!((uint8_t*)enc_start < (uint8_t*)hdr + (*pkt_octet_len - tag_len)))
+    if (!((uint8_t*)enc_start <= (uint8_t*)hdr + (*pkt_octet_len - tag_len)))
         return err_status_parse_err;
     /*
      * We pass the tag down to the cipher when doing GCM mode 
@@ -1117,6 +1412,17 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
      */
     aad_len = (uint8_t *)enc_start - (uint8_t *)hdr;
     status = cipher_set_aad(stream->rtp_cipher, (uint8_t*)hdr, aad_len);
+    if (!status && stream->rtp_xtn_hdr_cipher) {
+      iv.v32[0] = 0;
+      iv.v32[1] = hdr->ssrc;
+#ifdef NO_64BIT_MATH
+      iv.v64[1] = be64_to_cpu(make64((high32(est) << 16) | (low32(est) >> 16),
+                  low32(est) << 16));
+#else
+      iv.v64[1] = be64_to_cpu(est << 16);
+#endif
+      status = cipher_set_iv(stream->rtp_xtn_hdr_cipher, (uint8_t*)&iv, direction_encrypt);
+    }
     if (status) {
         return ( err_status_cipher_fail);
     }
@@ -1127,6 +1433,16 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
                             (uint8_t*)enc_start, &enc_octet_len);
     if (status) {
         return status;
+    }
+
+    if (xtn_hdr && stream->rtp_xtn_hdr_cipher) {
+      /*
+       * extensions header encryption RFC 6904
+       */
+      status = srtp_process_header_encryption(stream, xtn_hdr);
+      if (status) {
+        return status;
+      }
     }
 
     /*
@@ -1203,6 +1519,7 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
    int tag_len;
    srtp_stream_ctx_t *stream;
    int prefix_len;
+   srtp_hdr_xtnd_t *xtn_hdr = NULL;
 
    debug_print(mod_srtp, "function srtp_protect", NULL);
 
@@ -1305,10 +1622,10 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
    if (stream->rtp_services & sec_serv_conf) {
      enc_start = (uint32_t *)hdr + uint32s_in_rtp_header + hdr->cc;  
      if (hdr->x == 1) {
-       srtp_hdr_xtnd_t *xtn_hdr = (srtp_hdr_xtnd_t *)enc_start;
+       xtn_hdr = (srtp_hdr_xtnd_t *)enc_start;
        enc_start += (ntohs(xtn_hdr->length) + 1);
      }
-     if (!((uint8_t*)enc_start < (uint8_t*)hdr + *pkt_octet_len))
+     if (!((uint8_t*)enc_start <= (uint8_t*)hdr + *pkt_octet_len))
        return err_status_parse_err;
      enc_octet_len = (unsigned int)(*pkt_octet_len -
                                     ((uint8_t*)enc_start - (uint8_t*)hdr));
@@ -1365,7 +1682,9 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
      iv.v64[1] = be64_to_cpu(est << 16);
 #endif
      status = cipher_set_iv(stream->rtp_cipher, &iv, direction_encrypt);
-
+     if (!status && stream->rtp_xtn_hdr_cipher) {
+       status = cipher_set_iv(stream->rtp_xtn_hdr_cipher, (uint8_t*)&iv, direction_encrypt);
+     }
    } else {  
      v128_t iv;
 
@@ -1378,6 +1697,9 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
 #endif
      iv.v64[1] = be64_to_cpu(est);
      status = cipher_set_iv(stream->rtp_cipher, &iv, direction_encrypt);
+     if (!status && stream->rtp_xtn_hdr_cipher) {
+       status = cipher_set_iv(stream->rtp_xtn_hdr_cipher, (uint8_t*)&iv, direction_encrypt);
+     }
    }
    if (status)
      return err_status_cipher_fail;
@@ -1404,6 +1726,16 @@ srtp_unprotect_aead (srtp_ctx_t *ctx, srtp_stream_ctx_t *stream, int delta,
 	return err_status_cipher_fail;
       debug_print(mod_srtp, "keystream prefix: %s", 
 		  octet_string_hex_string(auth_tag, prefix_len));
+    }
+  }
+
+  if (xtn_hdr && stream->rtp_xtn_hdr_cipher) {
+    /*
+     * extensions header encryption RFC 6904
+     */
+    status = srtp_process_header_encryption(stream, xtn_hdr);
+    if (status) {
+      return status;
     }
   }
 
@@ -1464,6 +1796,7 @@ srtp_unprotect(srtp_ctx_t *ctx, void *srtp_hdr, int *pkt_octet_len) {
   srtp_stream_ctx_t *stream;
   uint8_t tmp_tag[SRTP_MAX_TAG_LEN];
   int tag_len, prefix_len;
+  srtp_hdr_xtnd_t *xtn_hdr = NULL;
 
   debug_print(mod_srtp, "function srtp_unprotect", NULL);
 
@@ -1557,6 +1890,9 @@ srtp_unprotect(srtp_ctx_t *ctx, void *srtp_hdr, int *pkt_octet_len) {
     iv.v64[1] = be64_to_cpu(est << 16);
 #endif
     status = cipher_set_iv(stream->rtp_cipher, &iv, direction_decrypt);
+    if (!status && stream->rtp_xtn_hdr_cipher) {
+      status = cipher_set_iv(stream->rtp_xtn_hdr_cipher, (uint8_t*)&iv, direction_decrypt);
+    }
   } else {  
     
     /* no particular format - set the iv to the pakcet index */  
@@ -1568,6 +1904,9 @@ srtp_unprotect(srtp_ctx_t *ctx, void *srtp_hdr, int *pkt_octet_len) {
 #endif
     iv.v64[1] = be64_to_cpu(est);
     status = cipher_set_iv(stream->rtp_cipher, &iv, direction_decrypt);
+    if (!status && stream->rtp_xtn_hdr_cipher) {
+      status = cipher_set_iv(stream->rtp_xtn_hdr_cipher, (uint8_t*)&iv, direction_decrypt);
+    }
   }
   if (status)
     return err_status_cipher_fail;
@@ -1592,10 +1931,10 @@ srtp_unprotect(srtp_ctx_t *ctx, void *srtp_hdr, int *pkt_octet_len) {
   if (stream->rtp_services & sec_serv_conf) {
     enc_start = (uint32_t *)hdr + uint32s_in_rtp_header + hdr->cc;  
     if (hdr->x == 1) {
-      srtp_hdr_xtnd_t *xtn_hdr = (srtp_hdr_xtnd_t *)enc_start;
+      xtn_hdr = (srtp_hdr_xtnd_t *)enc_start;
       enc_start += (ntohs(xtn_hdr->length) + 1);
     }  
-    if (!((uint8_t*)enc_start < (uint8_t*)hdr + (*pkt_octet_len - tag_len)))
+    if (!((uint8_t*)enc_start <= (uint8_t*)hdr + (*pkt_octet_len - tag_len)))
       return err_status_parse_err;
     enc_octet_len = (uint32_t)(*pkt_octet_len - tag_len -
                                ((uint8_t*)enc_start - (uint8_t*)hdr));
@@ -1677,6 +2016,16 @@ srtp_unprotect(srtp_ctx_t *ctx, void *srtp_hdr, int *pkt_octet_len) {
     return err_status_key_expired;
   default:
     break;
+  }
+
+  if (xtn_hdr && stream->rtp_xtn_hdr_cipher) {
+    /*
+     * extensions header encryption RFC 6904
+     */
+    status = srtp_process_header_encryption(stream, xtn_hdr);
+    if (status) {
+      return status;
+    }
   }
 
   /* if we're decrypting, add keystream into ciphertext */
@@ -2378,9 +2727,9 @@ srtp_protect_rtcp_aead (srtp_t ctx, srtp_stream_ctx_t *stream,
 	}
     }
     /* 
-     * put the idx# into network byte order and process it as AAD
+     * Process the sequence# as AAD
      */
-    tseq = htonl(*trailer);
+    tseq = *trailer;
     status = cipher_set_aad(stream->rtcp_cipher, (uint8_t*)&tseq, 
                             sizeof(srtcp_trailer_t));
     if (status) {
@@ -2529,9 +2878,9 @@ srtp_unprotect_rtcp_aead (srtp_t ctx, srtp_stream_ctx_t *stream,
     }
 
     /* 
-     * put the idx# into network byte order, and process it as AAD 
+     * Process the sequence# as AAD
      */
-    tseq = htonl(*trailer);
+    tseq = *trailer;
     status = cipher_set_aad(stream->rtcp_cipher, (uint8_t*)&tseq, 
                             sizeof(srtcp_trailer_t));
     if (status) {
