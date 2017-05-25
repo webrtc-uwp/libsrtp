@@ -53,6 +53,7 @@
           'SIZEOF_UNSIGNED_LONG_LONG=8',
           'HAVE_WINSOCK2_H',
           'HAVE_WINDOWS_H',
+          'OPENSSL_USE_BCRYPT',
          ],
          'msvs_disabled_warnings': [
             4018,  # signed/unsigned mismatch in comparison
@@ -112,6 +113,7 @@
             # All Windows architectures are this way.
             'SIZEOF_UNSIGNED_LONG=4',
             'SIZEOF_UNSIGNED_LONG_LONG=8',
+            'OPENSSL_USE_BCRYPT',
            ],
         }],
         ['target_arch=="x64" or target_arch=="ia32"', {
