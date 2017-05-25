@@ -335,7 +335,9 @@ crypto_kernel_do_load_cipher_type(cipher_type_t *new_ct, cipher_type_id_t id,
   /* check cipher type by running self-test */
   status = cipher_type_self_test(new_ct);
   if (status) {
+#ifndef OPENSSL_USE_BCRYPT
     return status;
+#endif /* OPENSSL_USE_BCRYPT */
   }
 
   /* walk down list, checking if this type is in the list already  */
