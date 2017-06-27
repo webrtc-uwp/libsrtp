@@ -61,16 +61,6 @@
 
 #define PRINT_DEBUG 0
 
-#ifdef WINRT
-//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
-//and this project as a static library, so we need exclusive main function name.
-# define main srtp_test_cipher_driver_main
-//We do not want exit process 
-# define usage srtp_test_cipher_driver_usage
-#define fflush(param) 
-#include "winrt_helpers.h"
-#endif
-
 void
 cipher_driver_test_throughput(srtp_cipher_t *c);
 

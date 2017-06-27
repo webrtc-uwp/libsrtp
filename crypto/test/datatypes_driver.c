@@ -53,14 +53,6 @@
 #include "datatypes.h"
 #include "util.h"
 
-#ifdef WINRT
-//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
-//and this project as a static library, so we need exclusive main function name.
-# define main srtp_test_datatypes_driver_main
-// we have to avoid duplicated names
-# define usage srtp_test_datatypes_driver_usage
-#endif
-
 void
 byte_order(void);
 

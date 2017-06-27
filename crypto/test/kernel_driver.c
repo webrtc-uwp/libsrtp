@@ -51,15 +51,6 @@
 #include "getopt_s.h"
 #include "crypto_kernel.h"
 
-#ifdef WINRT
-//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
-//and this project as a static library, so we need exclusive main function name.
-# define main srtp_test_kernel_driver_main
-// we have to avoid duplicated names
-# define usage srtp_test_kernel_driver_usage
-#include "winrt_helpers.h"
-#endif
-
 void
 usage(char *prog_name) {
   printf("usage: %s [ -v ][ -d debug_module ]*\n", prog_name);

@@ -59,13 +59,6 @@
  * validation functions below
  */
 
-#ifdef WINRT
-//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
-//and this project as a static library, so we need exclusive main function name.
-# define main replay_driver_main
-#include "winrt_helpers.h"
-#endif
-
 unsigned num_trials = 1 << 16;
 
 srtp_err_status_t

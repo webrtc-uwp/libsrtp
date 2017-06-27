@@ -108,16 +108,6 @@
 # endif
 #endif
 
-#ifdef WINRT
-//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
-//and this project as a static library, so we need exclusive main function name.
-# define main rtpw_main
-// we have to avoid duplicated names
-# define usage rtpw_usage
-#include "winrt_helpers.h"
-#endif
-
-
 /*
  * the function usage() prints an error message describing how this
  * program should be called, then calls exit()

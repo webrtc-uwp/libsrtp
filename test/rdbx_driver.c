@@ -58,15 +58,6 @@
 #error "srtp_rdbx_t won't work with ROC_TEST - bitmask same size as seq_median"
 #endif
 
-#ifdef WINRT
-//WinRT runtime doesn't support basic executables. Test are run using WinRT application as runner
-//and this project as a static library, so we need exclusive main function name.
-# define main rdbx_driver_main
-// we have to avoid duplicated names
-# define usage rdbx_driver_usage
-#include "winrt_helpers.h"
-#endif
-
 #include "ut_sim.h"
 
 srtp_err_status_t 
