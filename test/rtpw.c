@@ -108,6 +108,7 @@
 # endif
 #endif
 
+
 /*
  * the function usage() prints an error message describing how this
  * program should be called, then calls exit()
@@ -547,10 +548,8 @@ main (int argc, char *argv[]) {
           
     /* read words from dictionary, then send them off */
     while (!interrupted && fgets(word, MAX_WORD_LEN, dict) != NULL) { 
-     // since it's winsock2, which expects int, disable warning for this line
-#pragma warning (disable:4267)
-      len = strlen(word) + 1;  /* plus one for null */
-#pragma warning (default:4267)
+      len = (int)(strlen(word) + 1);  /* plus one for null */
+      
       if (len > MAX_WORD_LEN) 
 	printf("error: word %s too large to send\n", word);
       else {

@@ -194,17 +194,18 @@ test_hex_string_funcs(void) {
   char hex1[] = "abadcafe";
   char hex2[] = "0123456789abcdefqqqqq";
   char raw[10];
-  size_t len;
+  int len;
 
   len = hex_string_to_octet_string(raw, hex1, strlen(hex1));
-  printf("computed length: %zd\tstring: %s\n", len,
+  printf("computed length: %d\tstring: %s\n", len,
 	 octet_string_hex_string(raw, len/2));
   printf("expected length: %u\tstring: %s\n", (unsigned)strlen(hex1), hex1);
 
   len = hex_string_to_octet_string(raw, hex2, strlen(hex2));
-  printf("computed length: %zd\tstring: %s\n", len,
+  printf("computed length: %d\tstring: %s\n", len,
 	 octet_string_hex_string(raw, len/2));
   printf("expected length: %d\tstring: %s\n", 16, "0123456789abcdef");
+
 }
 
 void

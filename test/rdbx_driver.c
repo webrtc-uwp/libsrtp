@@ -43,8 +43,6 @@
  *
  */
 
-#include <stdlib.h>     /* for random() */
-
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -329,6 +327,7 @@ test_replay_dbx(int num_trials, unsigned long ws) {
 
 
 #include <time.h>       /* for clock()  */
+#include <stdlib.h>     /* for random() */
 
 double
 rdbx_check_adds_per_second(int num_trials, unsigned long ws) {

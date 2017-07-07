@@ -43,8 +43,6 @@
  *
  */
 
-#include <stdlib.h>     /* for random() */
-
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -226,6 +224,7 @@ test_rdb_db() {
 }
 
 #include <time.h>       /* for clock()  */
+#include <stdlib.h>     /* for random() */
 
 #define REPLAY_NUM_TRIALS 10000000
 
